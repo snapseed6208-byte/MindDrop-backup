@@ -1,0 +1,38 @@
+// Generates PWA icons from SVG source using sharp
+import sharp from 'sharp';
+import { writeFileSync } from 'fs';
+
+const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f5f0ea"/>
+      <stop offset="100%" stop-color="#e8e0d4"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <circle cx="256" cy="200" r="88" fill="#3d3529" opacity="0.08"/>
+  <circle cx="300" cy="180" r="40" fill="#3d3529" opacity="0.06"/>
+  <circle cx="180" cy="240" r="30" fill="#3d3529" opacity="0.05"/>
+  <text font-family="Georgia, serif" font-size="220" font-weight="bold" fill="#3d3529" text-anchor="middle" dominant-baseline="central" x="265" y="278">M</text>
+  <text font-family="Georgia, serif" font-size="220" font-weight="bold" fill="#ae9476" text-anchor="middle" dominant-baseline="central" x="259" y="270" opacity="0.4">M</text>
+  <text font-family="Georgia, serif" font-size="220" font-weight="bold" fill="#3d3529" text-anchor="middle" dominant-baseline="central" x="262" y="274">M</text>
+</svg>`;
+
+writeFileSync('public/icon-source.svg', svgIcon);
+console.log('Created source SVG icon');
+
+const sizes = [192, 512];
+for (const size of sizes) {
+  await sharp(Buffer.from(svgIcon))
+    .resize(size, size)
+    .png()
+    .toFile(`public/pwa-${size}x${size}.png`);
+  console.log(`Generated pwa-${size}x${size}.png`);
+}
+
+// Also generate a favicon (32x32)
+await sharp(Buffer.from(svgIcon))
+  .resize(32, 32)
+  .png()
+  .toFile('public/favicon.png');
+console.log('Generated favicon.png');

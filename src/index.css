@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  --color-mind-50: #faf8f6;
+  --color-mind-100: #f5f0ea;
+  --color-mind-200: #e8e0d4;
+  --color-mind-300: #d5c8b5;
+  --color-mind-400: #c2ae93;
+  --color-mind-500: #ae9476;
+  --color-mood-happy: #fbbf24;
+  --color-mood-calm: #93c5fd;
+  --color-mood-anxious: #a78bfa;
+  --color-mood-tired: #d4d4d8;
+  --color-mood-sad: #60a5fa;
+  --color-mood-angry: #f87171;
+  --color-mood-lost: #c4b5fd;
+  --color-mood-motivated: #34d399;
+  --color-mood-relaxed: #67e8f9;
+  --color-mood-cry: #818cf8;
+}
+
+body {
+  margin: 0;
+  background-color: #faf8f6;
+  color: #3d3529;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", "PingFang SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d5c8b5;
+  border-radius: 4px;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeInUp 0.3s ease-out;
+}
