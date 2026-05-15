@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import type { MindDropRecord, FilterState } from './types';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type { MindDropRecord, FilterState, AudioNote } from './types';
 import * as db from './db';
 
 export function useRecords() {
@@ -49,43 +49,78 @@ export function useFilteredRecords(records: MindDropRecord[], filters: FilterSta
   });
 }
 
-export function useSpeechRecognition() {
-  const [listening, setListening] = useState(false);
+export function useAudioRecorder() {
+  const [recording, setRecording] = useState(false);
+  const [duration, setDuration] = useState(0);
   const [supported, setSupported] = useState(true);
+  const [permissionDenied, setPermissionDenied] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<number>(0);
 
   useEffect(() => {
-    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
       setSupported(false);
     }
   }, []);
 
-  const startListening = useCallback((onResult: (text: string) => void) => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setSupported(false);
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'zh-CN';
-    recognition.continuous = false;
-    recognition.interimResults = true;
+  const startRecording = useCallback(async (): Promise<AudioNote | null> => {
+    if (!supported) return null;
 
-    recognition.onresult = (event: any) => {
-      const transcript = Array.from(event.results)
-        .map((r: any) => r[0].transcript)
-        .join('');
-      if (event.results[0].isFinal) {
-        onResult(transcript);
-        setListening(false);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setPermissionDenied(false);
+
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.start();
+
+      const startTime = Date.now();
+      setRecording(true);
+      setDuration(0);
+      timerRef.current = window.setInterval(() => {
+        setDuration(Math.floor((Date.now() - startTime) / 1000));
+      }, 200);
+
+      return new Promise((resolve) => {
+        mediaRecorder.onstop = () => {
+          clearInterval(timerRef.current);
+          setRecording(false);
+          stream.getTracks().forEach(t => t.stop());
+
+          const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+          const reader = new FileReader();
+          reader.onload = () => {
+            const audioNote: AudioNote = {
+              id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+              dataUrl: reader.result as string,
+              duration: Math.floor((Date.now() - startTime) / 1000),
+              createdAt: new Date().toISOString(),
+            };
+            resolve(audioNote);
+          };
+          reader.readAsDataURL(blob);
+        };
+      });
+    } catch (err) {
+      if ((err as DOMException).name === 'NotAllowedError') {
+        setPermissionDenied(true);
       }
-    };
+      return null;
+    }
+  }, [supported]);
 
-    recognition.onerror = () => setListening(false);
-    recognition.onend = () => setListening(false);
-
-    setListening(true);
-    recognition.start();
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
   }, []);
 
-  return { listening, supported, startListening };
+  return { recording, duration, supported, permissionDenied, startRecording, stopRecording };
 }

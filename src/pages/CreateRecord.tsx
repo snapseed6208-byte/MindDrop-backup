@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react';
-import type { MindDropRecord, MoodType, RecordType } from '../types';
+import type { MindDropRecord, MoodType, RecordType, AudioNote } from '../types';
 import { MOODS, TYPES } from '../types';
-import { useSpeechRecognition } from '../hooks';
+import AudioRecorder from '../components/AudioRecorder';
+import AudioPlayer from '../components/AudioPlayer';
 
 interface Props {
   onSave: (record: MindDropRecord) => void;
@@ -26,21 +27,8 @@ export default function CreateRecord({ onSave, onCancel }: Props) {
   const [mood, setMood] = useState<MoodType | ''>('');
   const [type, setType] = useState<RecordType | ''>('');
   const [images, setImages] = useState<string[]>([]);
-  const [isVoiceNote, setIsVoiceNote] = useState(false);
+  const [audioNotes, setAudioNotes] = useState<AudioNote[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const { listening, supported, startListening } = useSpeechRecognition();
-
-  const handleVoice = () => {
-    if (!supported) {
-      alert('当前浏览器暂不支持语音识别，可以先使用文字输入。');
-      return;
-    }
-    startListening((text: string) => {
-      setContent(prev => prev + text);
-      setIsVoiceNote(true);
-    });
-  };
 
   const handleImageAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -60,8 +48,16 @@ export default function CreateRecord({ onSave, onCancel }: Props) {
     setImages(prev => prev.filter((_, i) => i !== idx));
   };
 
+  const handleAddAudio = (note: AudioNote) => {
+    setAudioNotes(prev => prev.length < 3 ? [...prev, note] : prev);
+  };
+
+  const handleRemoveAudio = (idx: number) => {
+    setAudioNotes(prev => prev.filter((_, i) => i !== idx));
+  };
+
   const handleSave = () => {
-    if (!content.trim() && images.length === 0) return;
+    if (!content.trim() && images.length === 0 && audioNotes.length === 0) return;
     const now = new Date().toISOString();
     const record: MindDropRecord = {
       id: generateId(),
@@ -69,14 +65,15 @@ export default function CreateRecord({ onSave, onCancel }: Props) {
       mood,
       type,
       images,
-      isVoiceNote,
+      isVoiceNote: false,
+      audioNotes,
       createdAt: now,
       updatedAt: now,
     };
     onSave(record);
   };
 
-  const canSave = content.trim().length > 0 || images.length > 0;
+  const canSave = content.trim().length > 0 || images.length > 0 || audioNotes.length > 0;
 
   return (
     <div className="min-h-screen max-w-lg mx-auto px-4 pt-6 animate-fade-in">
@@ -108,21 +105,22 @@ export default function CreateRecord({ onSave, onCancel }: Props) {
         autoFocus
       />
 
-      {/* Voice button */}
-      <div className="flex items-center gap-3 mt-3 mb-5">
-        <button
-          onClick={handleVoice}
-          disabled={listening}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs border transition-all ${
-            listening
-              ? 'bg-red-50 text-red-500 border-red-200 animate-pulse'
-              : 'bg-white text-mind-500 border-mind-200 hover:border-mind-400'
-          }`}
-        >
-          {listening ? '🎤 聆听中...' : '🎤 语音输入'}
-        </button>
-        {!supported && (
-          <span className="text-xs text-mind-400">当前浏览器暂不支持语音识别</span>
+      {/* Audio recording */}
+      <div className="mt-3 mb-5 space-y-2">
+        <AudioRecorder onSave={handleAddAudio} />
+        {audioNotes.length >= 3 && (
+          <p className="text-xs text-mind-400">最多可添加 3 条录音</p>
+        )}
+        {audioNotes.length > 0 && (
+          <div className="space-y-1.5">
+            {audioNotes.map((note, idx) => (
+              <AudioPlayer
+                key={note.id}
+                note={note}
+                onDelete={() => handleRemoveAudio(idx)}
+              />
+            ))}
+          </div>
         )}
       </div>
 

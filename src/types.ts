@@ -11,6 +11,13 @@ export const TYPES = [
 export type MoodType = typeof MOODS[number];
 export type RecordType = typeof TYPES[number];
 
+export interface AudioNote {
+  id: string;
+  dataUrl: string;
+  duration: number;
+  createdAt: string;
+}
+
 export interface MindDropRecord {
   id: string;
   content: string;
@@ -18,6 +25,7 @@ export interface MindDropRecord {
   type: RecordType | '';
   images: string[];
   isVoiceNote: boolean;
+  audioNotes: AudioNote[];
   createdAt: string;
   updatedAt: string;
 }

@@ -218,7 +218,7 @@ export default function Home({
                     {record.type}
                   </span>
                 )}
-                {record.isVoiceNote && <span className="text-xs text-mind-400">🎤</span>}
+                {record.audioNotes && record.audioNotes.length > 0 && <span className="text-xs text-mind-400">🎤</span>}
                 {record.images.length > 0 && <span className="text-xs text-mind-400">🖼️</span>}
               </div>
               <p className="text-sm text-[#3d3529] leading-relaxed line-clamp-3">

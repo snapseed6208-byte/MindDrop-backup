@@ -1,7 +1,9 @@
 import { useState, useRef } from 'react';
-import type { MindDropRecord, MoodType, RecordType } from '../types';
+import type { MindDropRecord, MoodType, RecordType, AudioNote } from '../types';
 import { MOODS, TYPES } from '../types';
 import ImageLightbox from '../components/ImageLightbox';
+import AudioPlayer from '../components/AudioPlayer';
+import AudioRecorder from '../components/AudioRecorder';
 
 interface Props {
   record: MindDropRecord;
@@ -35,6 +37,7 @@ export default function RecordDetail({ record, onSave, onDelete, onBack }: Props
   const [mood, setMood] = useState<MoodType | ''>(record.mood);
   const [type, setType] = useState<RecordType | ''>(record.type);
   const [images, setImages] = useState<string[]>(record.images);
+  const [audioNotes, setAudioNotes] = useState<AudioNote[]>(record.audioNotes || []);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -65,6 +68,7 @@ export default function RecordDetail({ record, onSave, onDelete, onBack }: Props
       mood,
       type,
       images,
+      audioNotes,
       updatedAt: new Date().toISOString(),
     });
     setEditing(false);
@@ -137,6 +141,28 @@ export default function RecordDetail({ record, onSave, onDelete, onBack }: Props
           className="hidden"
           onChange={handleImageAdd}
         />
+
+        {/* Audio notes */}
+        <div className="mb-5">
+          <p className="text-xs text-mind-400 mb-2">录音</p>
+          <div className="space-y-2">
+            <AudioRecorder onSave={(note) => setAudioNotes(prev => prev.length < 3 ? [...prev, note] : prev)} />
+            {audioNotes.length >= 3 && (
+              <p className="text-xs text-mind-400">最多可添加 3 条录音</p>
+            )}
+            {audioNotes.length > 0 && (
+              <div className="space-y-1.5">
+                {audioNotes.map((note, idx) => (
+                  <AudioPlayer
+                    key={note.id}
+                    note={note}
+                    onDelete={() => setAudioNotes(prev => prev.filter((_, i) => i !== idx))}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
         <div className="mb-5">
           <p className="text-xs text-mind-400 mb-2">心情</p>
@@ -234,6 +260,15 @@ export default function RecordDetail({ record, onSave, onDelete, onBack }: Props
         </div>
       )}
 
+      {/* Audio playback */}
+      {record.audioNotes && record.audioNotes.length > 0 && (
+        <div className="mb-4 space-y-1.5">
+          {record.audioNotes.map(note => (
+            <AudioPlayer key={note.id} note={note} />
+          ))}
+        </div>
+      )}
+
       {/* Meta info */}
       <div className="bg-white rounded-2xl p-4 border border-mind-100 space-y-3">
         {record.mood && (
@@ -252,10 +287,10 @@ export default function RecordDetail({ record, onSave, onDelete, onBack }: Props
             </span>
           </div>
         )}
-        {record.isVoiceNote && (
+        {record.audioNotes && record.audioNotes.length > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-mind-400 w-12">来源</span>
-            <span className="text-xs text-mind-500">🎤 语音记录</span>
+            <span className="text-xs text-mind-400 w-12">录音</span>
+            <span className="text-xs text-mind-500">🎤 {record.audioNotes.length} 条</span>
           </div>
         )}
         <div className="flex items-center gap-2">
