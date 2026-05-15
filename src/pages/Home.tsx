@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import type { FilterState, MindDropRecord } from '../types';
 import { MOODS, TYPES } from '../types';
 import { useFilteredRecords } from '../hooks';
+import * as db from '../db';
 
 const MOOD_COLORS: Record<string, string> = {
   '开心': 'bg-yellow-100 text-yellow-700 border-yellow-200',
@@ -54,17 +55,59 @@ export default function Home({
   records,
   onNavigate,
   onEdit,
+  onReload,
 }: {
   records: MindDropRecord[];
   onNavigate: (page: string, record?: MindDropRecord) => void;
   onEdit: (record: MindDropRecord) => void;
+  onReload: () => void;
 }) {
   const [filters, setFilters] = useState<FilterState>({ search: '', mood: '', type: '' });
   const filtered = useFilteredRecords(records, filters);
   const todayCount = getTodayCount(records);
+  const [backupMsg, setBackupMsg] = useState('');
+  const [showBackup, setShowBackup] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
 
   const clearFilters = () => setFilters({ search: '', mood: '', type: '' });
   const hasFilters = filters.search || filters.mood || filters.type;
+
+  const handleExport = async () => {
+    try {
+      const data = await db.exportAllRecords();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const date = new Date().toISOString().slice(0, 10);
+      a.download = `minddrop-backup-${date}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setBackupMsg(`✓ 已导出 ${data.length} 条记录`);
+    } catch {
+      setBackupMsg('✗ 导出失败');
+    }
+    setTimeout(() => setBackupMsg(''), 3000);
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!Array.isArray(data)) throw new Error('格式错误');
+      const result = await db.importRecords(data);
+      setBackupMsg(`✓ 已导入 ${result.imported} 条，合并 ${result.merged} 条，跳过 ${result.skipped} 条`);
+      onReload();
+    } catch {
+      setBackupMsg('✗ 导入失败，请检查文件格式');
+    }
+    e.target.value = '';
+    setTimeout(() => setBackupMsg(''), 4000);
+  };
 
   return (
     <div className="min-h-screen max-w-lg mx-auto px-4 pb-24 animate-fade-in">
@@ -185,6 +228,49 @@ export default function Home({
           ))}
         </div>
       )}
+
+      {/* Data backup */}
+      <div className="mt-8 border-t border-mind-200 pt-4">
+        <button
+          onClick={() => setShowBackup(!showBackup)}
+          className="text-xs text-mind-400 hover:text-mind-600 transition-colors"
+        >
+          {showBackup ? '▼' : '▶'} 数据备份
+        </button>
+
+        {showBackup && (
+          <div className="mt-3 flex flex-wrap gap-3">
+            <button
+              onClick={handleExport}
+              className="px-4 py-2 rounded-full text-xs border bg-white text-mind-600
+                         border-mind-200 hover:border-mind-400 hover:bg-mind-50 transition-all"
+            >
+              ⬇️ 导出数据
+            </button>
+            <button
+              onClick={() => importRef.current?.click()}
+              className="px-4 py-2 rounded-full text-xs border bg-white text-mind-600
+                         border-mind-200 hover:border-mind-400 hover:bg-mind-50 transition-all"
+            >
+              📥 导入数据
+            </button>
+            <input
+              ref={importRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={handleImport}
+            />
+            <span className="text-xs text-mind-400 self-center italic">
+              导入会合并记录，不会清空现有数据，重复记录以较新者为准。
+            </span>
+          </div>
+        )}
+
+        {backupMsg && (
+          <p className="mt-2 text-xs text-mind-500 animate-fade-in">{backupMsg}</p>
+        )}
+      </div>
     </div>
   );
 }

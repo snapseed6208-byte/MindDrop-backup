@@ -11,7 +11,7 @@ type Page =
   | { name: 'detail'; record: MindDropRecord };
 
 export default function App() {
-  const { records, add, update, remove } = useRecords();
+  const { records, add, update, remove, reload } = useRecords();
 
   const [page, setPage] = useState<Page>({ name: 'home' });
 
@@ -49,6 +49,6 @@ export default function App() {
         />
       );
     default:
-      return <Home records={records} onNavigate={navigate} onEdit={(r) => setPage({ name: 'detail', record: r })} />;
+      return <Home records={records} onNavigate={navigate} onEdit={(r) => setPage({ name: 'detail', record: r })} onReload={reload} />;
   }
 }

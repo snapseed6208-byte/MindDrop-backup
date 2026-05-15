@@ -72,3 +72,34 @@ export async function deleteRecord(id: string): Promise<void> {
     tx.onerror = () => reject(tx.error);
   });
 }
+
+export async function exportAllRecords(): Promise<any[]> {
+  return await getAllRecords();
+}
+
+export async function importRecords(records: any[]): Promise<{ imported: number; skipped: number; merged: number }> {
+  const existing = await getAllRecords();
+  const existingMap = new Map(existing.map(r => [r.id, r]));
+
+  let imported = 0;
+  let merged = 0;
+  let skipped = 0;
+
+  for (const record of records) {
+    if (!record.id) { skipped++; continue; }
+    const exist = existingMap.get(record.id);
+    if (exist) {
+      if (new Date(record.updatedAt) > new Date(exist.updatedAt)) {
+        await saveRecord(record);
+        merged++;
+      } else {
+        skipped++;
+      }
+    } else {
+      await saveRecord(record);
+      imported++;
+    }
+  }
+
+  return { imported, merged, skipped };
+}
