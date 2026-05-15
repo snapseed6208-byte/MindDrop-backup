@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import type { MindDropRecord, MoodType, RecordType } from '../types';
 import { MOODS, TYPES } from '../types';
+import ImageLightbox from '../components/ImageLightbox';
 
 interface Props {
   record: MindDropRecord;
@@ -35,6 +36,8 @@ export default function RecordDetail({ record, onSave, onDelete, onBack }: Props
   const [type, setType] = useState<RecordType | ''>(record.type);
   const [images, setImages] = useState<string[]>(record.images);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,6 +77,7 @@ export default function RecordDetail({ record, onSave, onDelete, onBack }: Props
 
   if (editing) {
     return (
+      <>
       <div className="min-h-screen max-w-lg mx-auto px-4 pt-6 animate-fade-in">
         <div className="flex items-center justify-between mb-6">
           <button onClick={() => setEditing(false)} className="text-sm text-mind-400 hover:text-mind-600 transition-colors">
@@ -101,9 +105,14 @@ export default function RecordDetail({ record, onSave, onDelete, onBack }: Props
           <div className="flex flex-wrap gap-2 mt-4 mb-4">
             {images.map((img, idx) => (
               <div key={idx} className="relative">
-                <img src={img} alt="" className="w-20 h-20 object-cover rounded-xl" />
+                <img
+                  src={img}
+                  alt=""
+                  className="w-20 h-20 object-cover rounded-xl cursor-pointer hover:opacity-90 transition-opacity"
+                  onClick={() => { setLightboxIndex(idx); setLightboxOpen(true); }}
+                />
                 <button
-                  onClick={() => handleRemoveImage(idx)}
+                  onClick={(e) => { e.stopPropagation(); handleRemoveImage(idx); }}
                   className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-white rounded-full border border-mind-200
                              text-xs text-mind-500 flex items-center justify-center shadow-sm hover:shadow"
                 >
@@ -167,10 +176,20 @@ export default function RecordDetail({ record, onSave, onDelete, onBack }: Props
           </div>
         </div>
       </div>
+
+      {lightboxOpen && (
+        <ImageLightbox
+          images={images}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxOpen(false)}
+        />
+      )}
+      </>
     );
   }
 
   return (
+    <>
     <div className="min-h-screen max-w-lg mx-auto px-4 pt-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -204,7 +223,13 @@ export default function RecordDetail({ record, onSave, onDelete, onBack }: Props
       {record.images.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4">
           {record.images.map((img, idx) => (
-            <img key={idx} src={img} alt="" className="w-24 h-24 object-cover rounded-xl" />
+            <img
+              key={idx}
+              src={img}
+              alt=""
+              className="w-24 h-24 object-cover rounded-xl cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => { setLightboxIndex(idx); setLightboxOpen(true); }}
+            />
           ))}
         </div>
       )}
@@ -268,5 +293,14 @@ export default function RecordDetail({ record, onSave, onDelete, onBack }: Props
         </div>
       )}
     </div>
+
+    {lightboxOpen && (
+      <ImageLightbox
+        images={record.images}
+        initialIndex={lightboxIndex}
+        onClose={() => setLightboxOpen(false)}
+      />
+    )}
+    </>
   );
 }
