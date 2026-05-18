@@ -75,7 +75,6 @@ export default function Home({
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
-  const [syncing, setSyncing] = useState(false);
   const [isSignup, setIsSignup] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
 
@@ -138,22 +137,18 @@ export default function Home({
   };
 
   const handleUpload = async () => {
-    setSyncing(true);
     auth.setSyncMsg('');
     const result = await auth.uploadToCloud();
     auth.setSyncMsg(result || '');
-    setSyncing(false);
   };
 
   const handleRestore = async () => {
-    setSyncing(true);
     auth.setSyncMsg('');
     const result = await auth.restoreFromCloud();
     auth.setSyncMsg(result || '');
     if (result && !result.startsWith('✗') && !result.startsWith('获取') && !result.startsWith('云端')) {
       onReload();
     }
-    setSyncing(false);
   };
 
   return (
@@ -319,30 +314,51 @@ export default function Home({
               {auth.user ? (
                 <div className="space-y-3">
                   <p className="text-xs text-mind-500">已登录：{auth.user.email}</p>
+
+                  {/* Progress display */}
+                  {auth.syncing && auth.syncProgress.total > 0 && (
+                    <div className="bg-mind-50 rounded-xl p-3 border border-mind-100">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-mind-600">
+                          {auth.syncProgress.phase}
+                        </span>
+                        <span className="text-xs text-mind-400">
+                          {auth.syncProgress.current}/{auth.syncProgress.total}
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-mind-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-mind-500 rounded-full transition-all duration-300"
+                          style={{ width: `${(auth.syncProgress.current / auth.syncProgress.total) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap gap-3">
                     <button
                       onClick={handleUpload}
-                      disabled={syncing}
+                      disabled={auth.syncing}
                       className="px-4 py-2 rounded-full text-xs border bg-white text-mind-600
                                  border-mind-200 hover:border-mind-400 hover:bg-mind-50
                                  disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
-                      {syncing ? '同步中...' : '☁️ 上传本机数据到云端'}
+                      {auth.syncing ? '同步中...' : '☁️ 上传数据'}
                     </button>
                     <button
                       onClick={handleRestore}
-                      disabled={syncing}
+                      disabled={auth.syncing}
                       className="px-4 py-2 rounded-full text-xs border bg-white text-mind-600
                                  border-mind-200 hover:border-mind-400 hover:bg-mind-50
                                  disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
-                      {syncing ? '同步中...' : '☁️ 从云端恢复到本机'}
+                      {auth.syncing ? '同步中...' : '☁️ 恢复数据'}
                     </button>
                   </div>
                   <p className="text-xs text-mind-400 italic">
-                    上传：会将本机记录上传到当前账号的云端，不会删除本机数据
+                    上传：逐条上传记录到云端，图片和录音上传到 Supabase Storage，本地数据不会被删除
                     <br />
-                    恢复：会将云端记录合并到本机，不会清空现有记录
+                    恢复：从云端合并记录到本机，不会清空现有记录
                   </p>
                 </div>
               ) : (
