@@ -7,7 +7,11 @@ import * as db from '../db';
 export interface SyncProgress {
   current: number;
   total: number;
-  phase: string; // e.g. "正在上传记录 3/10...", "正在上传图片...", "已完成"
+  phase: string;
+}
+
+function shortId(id: string): string {
+  return id ? id.slice(0, 8) : '???';
 }
 
 export function useAuth() {
@@ -54,14 +58,13 @@ export function useAuth() {
     setUser(null);
   }, []);
 
-  // ─── Safe upload: per-record, per-file, with progress ───
-
   const uploadToCloud = useCallback(async (): Promise<string | null> => {
     if (!supabase) return 'Supabase 未配置';
     if (!user) return '请先登录';
 
     setSyncing(true);
     setSyncMsg('');
+    setSyncProgress({ current: 0, total: 0, phase: '读取本地记录...' });
 
     try {
       const records = await db.getAllRecords();
@@ -76,65 +79,93 @@ export function useAuth() {
 
       for (let i = 0; i < records.length; i++) {
         const r = records[i];
+        const rid = shortId(r.id);
         setSyncProgress({
           current: i + 1,
           total: records.length,
-          phase: `正在处理记录 ${i + 1} / ${records.length}...`,
+          phase: `[${rid}] 正在处理记录 ${i + 1} / ${records.length}...`,
         });
 
-        try {
-          // 1. Upload images to Storage
-          const imageRefs: { id: string; storagePath: string; createdAt: string }[] = [];
-          const images = (r.images as string[]) || [];
+        const imageRefs: { id: string; storagePath: string; createdAt: string }[] = [];
+        const audioRefs: { id: string; storagePath: string; duration: number; createdAt: string }[] = [];
 
-          for (let j = 0; j < images.length; j++) {
-            setSyncProgress({
-              current: i + 1,
-              total: records.length,
-              phase: `上传图片 ${j + 1}/${images.length} (记录 ${i + 1}/${records.length})...`,
-            });
-            const imgId = uniqueFileName('jpg');
-            const path = `users/${user.id}/records/${r.id}/images/${imgId}`;
+        let recordFailed = false;
+
+        // 1. Upload images to Storage
+        const images = (r.images as string[]) || [];
+        for (let j = 0; j < images.length; j++) {
+          const imgId = uniqueFileName('jpg');
+          const path = `users/${user.id}/records/${r.id}/images/${imgId}`;
+          setSyncProgress({
+            current: i + 1,
+            total: records.length,
+            phase: `[${rid}] 上传图片 ${j + 1}/${images.length}...`,
+          });
+          try {
             const blob = dataUrlToBlob(images[j]);
             const { error: uploadErr } = await supabase.storage
               .from('minddrop-media')
               .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
-            if (uploadErr) throw new Error(`图片上传失败: ${uploadErr.message}`);
-            imageRefs.push({ id: imgId.replace('.jpg', ''), storagePath: path, createdAt: new Date().toISOString() });
+            if (uploadErr) {
+              const msg = `[${rid}] 图片上传失败: ${path} — ${uploadErr.message}`;
+              console.error('Image upload error:', { recordId: r.id, storagePath: path, error: uploadErr });
+              failDetails.push(msg);
+              recordFailed = true;
+            } else {
+              imageRefs.push({ id: imgId.replace('.jpg', ''), storagePath: path, createdAt: new Date().toISOString() });
+            }
+          } catch (err) {
+            const msg = `[${rid}] 图片上传异常: ${path} — ${(err as Error).message}`;
+            console.error('Image upload exception:', { recordId: r.id, storagePath: path, error: err });
+            failDetails.push(msg);
+            recordFailed = true;
           }
+        }
 
-          // 2. Upload audio notes to Storage
-          const audioRefs: { id: string; storagePath: string; duration: number; createdAt: string }[] = [];
-          const audioNotes = (r.audioNotes as any[]) || [];
-
-          for (let j = 0; j < audioNotes.length; j++) {
-            setSyncProgress({
-              current: i + 1,
-              total: records.length,
-              phase: `上传录音 ${j + 1}/${audioNotes.length} (记录 ${i + 1}/${records.length})...`,
-            });
-            const audioId = uniqueFileName('webm');
-            const path = `users/${user.id}/records/${r.id}/audios/${audioId}`;
+        // 2. Upload audio notes to Storage
+        const audioNotes = (r.audioNotes as any[]) || [];
+        for (let j = 0; j < audioNotes.length; j++) {
+          const audioId = uniqueFileName('webm');
+          const path = `users/${user.id}/records/${r.id}/audios/${audioId}`;
+          setSyncProgress({
+            current: i + 1,
+            total: records.length,
+            phase: `[${rid}] 上传录音 ${j + 1}/${audioNotes.length}...`,
+          });
+          try {
             const blob = dataUrlToBlob(audioNotes[j].dataUrl);
             const { error: uploadErr } = await supabase.storage
               .from('minddrop-media')
               .upload(path, blob, { contentType: 'audio/webm', upsert: true });
-            if (uploadErr) throw new Error(`录音上传失败: ${uploadErr.message}`);
-            audioRefs.push({
-              id: audioId.replace('.webm', ''),
-              storagePath: path,
-              duration: audioNotes[j].duration || 0,
-              createdAt: audioNotes[j].createdAt || new Date().toISOString(),
-            });
+            if (uploadErr) {
+              const msg = `[${rid}] 录音上传失败: ${path} — ${uploadErr.message}`;
+              console.error('Audio upload error:', { recordId: r.id, storagePath: path, error: uploadErr });
+              failDetails.push(msg);
+              recordFailed = true;
+            } else {
+              audioRefs.push({
+                id: audioId.replace('.webm', ''),
+                storagePath: path,
+                duration: audioNotes[j].duration || 0,
+                createdAt: audioNotes[j].createdAt || new Date().toISOString(),
+              });
+            }
+          } catch (err) {
+            const msg = `[${rid}] 录音上传异常: ${path} — ${(err as Error).message}`;
+            console.error('Audio upload exception:', { recordId: r.id, storagePath: path, error: err });
+            failDetails.push(msg);
+            recordFailed = true;
           }
+        }
 
-          // 3. Write lightweight record_data to cloud_records
-          setSyncProgress({
-            current: i + 1,
-            total: records.length,
-            phase: `保存记录数据 ${i + 1}/${records.length}...`,
-          });
+        // 3. Write lightweight record_data to cloud_records
+        setSyncProgress({
+          current: i + 1,
+          total: records.length,
+          phase: `[${rid}] 保存记录数据 ${i + 1}/${records.length}...`,
+        });
 
+        try {
           const lightRecord = {
             id: r.id,
             content: r.content,
@@ -157,30 +188,37 @@ export function useAuth() {
               updated_at: r.updatedAt,
             }, { onConflict: 'id' });
 
-          if (dbErr) throw new Error(`保存记录失败: ${dbErr.message}`);
-          successCount++;
-
+          if (dbErr) {
+            const msg = `[${rid}] 记录写入失败: ${dbErr.message}`;
+            console.error('DB upsert error:', { recordId: r.id, error: dbErr });
+            failDetails.push(msg);
+            recordFailed = true;
+          }
         } catch (err) {
+          const msg = `[${rid}] 记录写入异常: ${(err as Error).message}`;
+          console.error('DB upsert exception:', { recordId: r.id, error: err });
+          failDetails.push(msg);
+          recordFailed = true;
+        }
+
+        if (recordFailed) {
           failCount++;
-          const msg = (err as Error).message;
-          failDetails.push(`记录 ${r.id?.slice(0, 8) || i + 1}: ${msg}`);
-          // Continue to next record — local data unaffected
+        } else {
+          successCount++;
         }
       }
 
       setSyncProgress({ current: records.length, total: records.length, phase: '已完成' });
-      const result = `✓ 上传完成：成功 ${successCount} 条${failCount ? `，失败 ${failCount} 条` : ''}` +
-        (failDetails.length > 0 ? `\n${failDetails.slice(0, 3).join('\n')}${failDetails.length > 3 ? `\n...等 ${failDetails.length} 条失败` : ''}` : '');
-      return result;
+      return `✓ 上传完成：成功 ${successCount} 条${failCount ? `，失败 ${failCount} 条` : ''}` +
+        (failDetails.length > 0 ? `\n${failDetails.slice(0, 5).join('\n')}${failDetails.length > 5 ? `\n...及其他 ${failDetails.length - 5} 条错误` : ''}` : '');
 
     } catch (err) {
+      console.error('uploadToCloud outer catch:', err);
       return `同步失败: ${(err as Error).message}`;
     } finally {
       setSyncing(false);
     }
   }, [user]);
-
-  // ─── Safe restore: per-record, per-file, with progress ───
 
   const restoreFromCloud = useCallback(async (): Promise<string | null> => {
     if (!supabase) return 'Supabase 未配置';
@@ -188,6 +226,7 @@ export function useAuth() {
 
     setSyncing(true);
     setSyncMsg('');
+    setSyncProgress({ current: 0, total: 0, phase: '读取云端数据...' });
 
     try {
       const { data, error } = await supabase
@@ -198,6 +237,7 @@ export function useAuth() {
 
       if (error) {
         setSyncing(false);
+        console.error('fetch cloud_records error:', error);
         return `获取云端数据失败: ${error.message}`;
       }
 
@@ -214,93 +254,110 @@ export function useAuth() {
         const light = data[i].record_data;
         if (!light || !light.id) { failCount++; continue; }
 
+        const rid = shortId(light.id);
         setSyncProgress({
           current: i + 1,
           total: data.length,
-          phase: `正在恢复记录 ${i + 1} / ${data.length}...`,
+          phase: `[${rid}] 正在恢复记录 ${i + 1} / ${data.length}...`,
         });
 
+        const fullRecord: any = {
+          id: light.id,
+          content: light.content || '',
+          mood: light.mood || '',
+          type: light.type || '',
+          isVoiceNote: !!light.isVoiceNote,
+          createdAt: light.createdAt,
+          updatedAt: light.updatedAt,
+          images: [] as string[],
+          audioNotes: [] as any[],
+        };
+
+        let recordFailed = false;
+
+        // Download images from Storage
+        const imageRefs: { id: string; storagePath: string }[] = light.imageRefs || [];
+        for (let j = 0; j < imageRefs.length; j++) {
+          setSyncProgress({
+            current: i + 1,
+            total: data.length,
+            phase: `[${rid}] 下载图片 ${j + 1}/${imageRefs.length}...`,
+          });
+          try {
+            const { data: blob, error: dlErr } = await supabase.storage
+              .from('minddrop-media')
+              .download(imageRefs[j].storagePath);
+            if (dlErr || !blob) {
+              const msg = `[${rid}] 图片下载失败: ${imageRefs[j].storagePath} — ${dlErr?.message || '空响应'}`;
+              console.error('Image download error:', { recordId: light.id, storagePath: imageRefs[j].storagePath, error: dlErr });
+              failDetails.push(msg);
+              recordFailed = true;
+              continue;
+            }
+            const dataUrl = await blobToDataUrl(blob);
+            fullRecord.images.push(dataUrl);
+          } catch (err) {
+            const msg = `[${rid}] 图片下载异常: ${imageRefs[j].storagePath} — ${(err as Error).message}`;
+            console.error('Image download exception:', { recordId: light.id, storagePath: imageRefs[j].storagePath, error: err });
+            failDetails.push(msg);
+            recordFailed = true;
+          }
+        }
+
+        // Download audio notes from Storage
+        const audioRefs: { id: string; storagePath: string; duration: number; createdAt: string }[] = light.audioRefs || [];
+        for (let j = 0; j < audioRefs.length; j++) {
+          setSyncProgress({
+            current: i + 1,
+            total: data.length,
+            phase: `[${rid}] 下载录音 ${j + 1}/${audioRefs.length}...`,
+          });
+          try {
+            const { data: blob, error: dlErr } = await supabase.storage
+              .from('minddrop-media')
+              .download(audioRefs[j].storagePath);
+            if (dlErr || !blob) {
+              const msg = `[${rid}] 录音下载失败: ${audioRefs[j].storagePath} — ${dlErr?.message || '空响应'}`;
+              console.error('Audio download error:', { recordId: light.id, storagePath: audioRefs[j].storagePath, error: dlErr });
+              failDetails.push(msg);
+              recordFailed = true;
+              continue;
+            }
+            const dataUrl = await blobToDataUrl(blob);
+            fullRecord.audioNotes.push({
+              id: audioRefs[j].id,
+              dataUrl,
+              duration: audioRefs[j].duration || 0,
+              createdAt: audioRefs[j].createdAt,
+            });
+          } catch (err) {
+            const msg = `[${rid}] 录音下载异常: ${audioRefs[j].storagePath} — ${(err as Error).message}`;
+            console.error('Audio download exception:', { recordId: light.id, storagePath: audioRefs[j].storagePath, error: err });
+            failDetails.push(msg);
+            recordFailed = true;
+          }
+        }
+
+        // Save to IndexedDB
         try {
-          // Reconstruct the full MindDropRecord
-          const fullRecord: any = {
-            id: light.id,
-            content: light.content || '',
-            mood: light.mood || '',
-            type: light.type || '',
-            isVoiceNote: !!light.isVoiceNote,
-            createdAt: light.createdAt,
-            updatedAt: light.updatedAt,
-            images: [] as string[],
-            audioNotes: [] as any[],
-          };
-
-          // Download images from Storage
-          const imageRefs: { id: string; storagePath: string }[] = light.imageRefs || [];
-          for (let j = 0; j < imageRefs.length; j++) {
-            setSyncProgress({
-              current: i + 1,
-              total: data.length,
-              phase: `下载图片 ${j + 1}/${imageRefs.length} (记录 ${i + 1}/${data.length})...`,
-            });
-            try {
-              const { data: blob, error: dlErr } = await supabase.storage
-                .from('minddrop-media')
-                .download(imageRefs[j].storagePath);
-              if (dlErr || !blob) {
-                failDetails.push(`记录 ${light.id.slice(0, 8)}: 图片 ${j + 1} 下载失败`);
-                continue;
-              }
-              const dataUrl = await blobToDataUrl(blob);
-              fullRecord.images.push(dataUrl);
-            } catch {
-              failDetails.push(`记录 ${light.id.slice(0, 8)}: 图片 ${j + 1} 下载异常`);
-            }
-          }
-
-          // Download audio notes from Storage
-          const audioRefs: { id: string; storagePath: string; duration: number; createdAt: string }[] = light.audioRefs || [];
-          for (let j = 0; j < audioRefs.length; j++) {
-            setSyncProgress({
-              current: i + 1,
-              total: data.length,
-              phase: `下载录音 ${j + 1}/${audioRefs.length} (记录 ${i + 1}/${data.length})...`,
-            });
-            try {
-              const { data: blob, error: dlErr } = await supabase.storage
-                .from('minddrop-media')
-                .download(audioRefs[j].storagePath);
-              if (dlErr || !blob) {
-                failDetails.push(`记录 ${light.id.slice(0, 8)}: 录音 ${j + 1} 下载失败`);
-                continue;
-              }
-              const dataUrl = await blobToDataUrl(blob);
-              fullRecord.audioNotes.push({
-                id: audioRefs[j].id,
-                dataUrl,
-                duration: audioRefs[j].duration || 0,
-                createdAt: audioRefs[j].createdAt,
-              });
-            } catch {
-              failDetails.push(`记录 ${light.id.slice(0, 8)}: 录音 ${j + 1} 下载异常`);
-            }
-          }
-
-          // Merge into IndexedDB
           await db.saveRecord(fullRecord);
           successCount++;
-
         } catch (err) {
-          failCount++;
-          failDetails.push(`记录 ${light.id?.slice(0, 8) || i + 1}: ${(err as Error).message}`);
+          const msg = `[${rid}] 本地保存失败: ${(err as Error).message}`;
+          console.error('IndexedDB save error:', { recordId: light.id, error: err });
+          failDetails.push(msg);
+          recordFailed = true;
         }
+
+        if (recordFailed) failCount++;
       }
 
       setSyncProgress({ current: data.length, total: data.length, phase: '已完成' });
-      const result = `✓ 恢复完成：成功 ${successCount} 条${failCount ? `，失败 ${failCount} 条` : ''}` +
-        (failDetails.length > 0 ? `\n${failDetails.slice(0, 3).join('\n')}${failDetails.length > 3 ? `\n...等 ${failDetails.length} 条失败` : ''}` : '');
-      return result;
+      return `✓ 恢复完成：成功 ${successCount} 条${failCount ? `，失败 ${failCount} 条` : ''}` +
+        (failDetails.length > 0 ? `\n${failDetails.slice(0, 5).join('\n')}${failDetails.length > 5 ? `\n...及其他 ${failDetails.length - 5} 条错误` : ''}` : '');
 
     } catch (err) {
+      console.error('restoreFromCloud outer catch:', err);
       return `恢复失败: ${(err as Error).message}`;
     } finally {
       setSyncing(false);
