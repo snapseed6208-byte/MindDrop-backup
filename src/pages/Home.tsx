@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import type { FilterState, MindDropRecord } from '../types';
 import { MOODS, TYPES } from '../types';
 import { useFilteredRecords } from '../hooks';
+import type { useAuth } from '../hooks/useAuth';
 import * as db from '../db';
 
 const MOOD_COLORS: Record<string, string> = {
@@ -56,17 +57,26 @@ export default function Home({
   onNavigate,
   onEdit,
   onReload,
+  auth,
 }: {
   records: MindDropRecord[];
   onNavigate: (page: string, record?: MindDropRecord) => void;
   onEdit: (record: MindDropRecord) => void;
   onReload: () => void;
+  auth: ReturnType<typeof useAuth>;
 }) {
   const [filters, setFilters] = useState<FilterState>({ search: '', mood: '', type: '' });
   const filtered = useFilteredRecords(records, filters);
   const todayCount = getTodayCount(records);
   const [backupMsg, setBackupMsg] = useState('');
   const [showBackup, setShowBackup] = useState(false);
+  const [showSync, setShowSync] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [isSignup, setIsSignup] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
 
   const clearFilters = () => setFilters({ search: '', mood: '', type: '' });
@@ -109,14 +119,79 @@ export default function Home({
     setTimeout(() => setBackupMsg(''), 4000);
   };
 
+  const handleLogin = async () => {
+    setLoginError('');
+    if (!loginEmail || !loginPassword) {
+      setLoginError('请输入邮箱和密码');
+      return;
+    }
+    const err = isSignup
+      ? await auth.signup(loginEmail, loginPassword)
+      : await auth.login(loginEmail, loginPassword);
+    if (err) {
+      setLoginError(err);
+    } else {
+      setShowLogin(false);
+      setLoginEmail('');
+      setLoginPassword('');
+    }
+  };
+
+  const handleUpload = async () => {
+    setSyncing(true);
+    auth.setSyncMsg('');
+    const result = await auth.uploadToCloud();
+    auth.setSyncMsg(result || '');
+    setSyncing(false);
+  };
+
+  const handleRestore = async () => {
+    setSyncing(true);
+    auth.setSyncMsg('');
+    const result = await auth.restoreFromCloud();
+    auth.setSyncMsg(result || '');
+    if (result && !result.startsWith('✗') && !result.startsWith('获取') && !result.startsWith('云端')) {
+      onReload();
+    }
+    setSyncing(false);
+  };
+
   return (
     <div className="min-h-screen max-w-lg mx-auto px-4 pb-24 animate-fade-in">
       {/* Header */}
       <header className="pt-8 pb-4">
-        <h1 className="text-2xl font-semibold text-[#3d3529] tracking-wide">
-          MindDrop
-        </h1>
-        <p className="text-sm text-mind-400 mt-0.5">想法胶囊</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-[#3d3529] tracking-wide">MindDrop</h1>
+            <p className="text-sm text-mind-400 mt-0.5">想法胶囊</p>
+          </div>
+          {/* Auth status */}
+          <div className="flex items-center gap-2">
+            {auth.configError ? (
+              <span className="text-xs text-mind-400 italic">同步未配置</span>
+            ) : auth.loading ? (
+              <span className="text-xs text-mind-400">...</span>
+            ) : auth.user ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-mind-500 truncate max-w-[120px]">{auth.user.email}</span>
+                <button
+                  onClick={auth.logout}
+                  className="text-xs text-mind-400 hover:text-mind-600 transition-colors"
+                >
+                  退出
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowLogin(true)}
+                className="text-xs text-mind-500 hover:text-mind-700 transition-colors border border-mind-200 px-3 py-1 rounded-full"
+              >
+                登录
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="flex items-center justify-between mt-4">
           <p className="text-xs text-mind-400">
             今日 <span className="text-mind-600 font-medium">{todayCount}</span> 条记录
@@ -229,7 +304,68 @@ export default function Home({
         </div>
       )}
 
-      {/* Data backup */}
+      {/* Cloud sync section */}
+      {!auth.configError && (
+        <div className="mt-8 border-t border-mind-200 pt-4">
+          <button
+            onClick={() => setShowSync(!showSync)}
+            className="text-xs text-mind-400 hover:text-mind-600 transition-colors"
+          >
+            {showSync ? '▼' : '▶'} 云同步
+          </button>
+
+          {showSync && (
+            <div className="mt-3">
+              {auth.user ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-mind-500">已登录：{auth.user.email}</p>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      onClick={handleUpload}
+                      disabled={syncing}
+                      className="px-4 py-2 rounded-full text-xs border bg-white text-mind-600
+                                 border-mind-200 hover:border-mind-400 hover:bg-mind-50
+                                 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                      {syncing ? '同步中...' : '☁️ 上传本机数据到云端'}
+                    </button>
+                    <button
+                      onClick={handleRestore}
+                      disabled={syncing}
+                      className="px-4 py-2 rounded-full text-xs border bg-white text-mind-600
+                                 border-mind-200 hover:border-mind-400 hover:bg-mind-50
+                                 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                      {syncing ? '同步中...' : '☁️ 从云端恢复到本机'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-mind-400 italic">
+                    上传：会将本机记录上传到当前账号的云端，不会删除本机数据
+                    <br />
+                    恢复：会将云端记录合并到本机，不会清空现有记录
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <button
+                    onClick={() => setShowLogin(true)}
+                    className="px-4 py-2 rounded-full text-xs border bg-white text-mind-600
+                               border-mind-200 hover:border-mind-400 hover:bg-mind-50 transition-all"
+                  >
+                    🔑 登录以使用云同步
+                  </button>
+                </div>
+              )}
+
+              {auth.syncMsg && (
+                <p className="mt-2 text-xs text-mind-500 animate-fade-in">{auth.syncMsg}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Data backup section */}
       <div className="mt-8 border-t border-mind-200 pt-4">
         <button
           onClick={() => setShowBackup(!showBackup)}
@@ -271,6 +407,56 @@ export default function Home({
           <p className="mt-2 text-xs text-mind-500 animate-fade-in">{backupMsg}</p>
         )}
       </div>
+
+      {/* Login modal */}
+      {showLogin && (
+        <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-lg">
+            <h3 className="text-base font-medium text-[#3d3529] mb-4">{isSignup ? '注册' : '登录'}</h3>
+            <div className="space-y-3">
+              <input
+                type="email"
+                placeholder="邮箱"
+                value={loginEmail}
+                onChange={e => setLoginEmail(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl text-sm border border-mind-200 text-[#3d3529]
+                           placeholder-mind-400 outline-none focus:border-mind-400 transition-all"
+              />
+              <input
+                type="password"
+                placeholder="密码"
+                value={loginPassword}
+                onChange={e => setLoginPassword(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl text-sm border border-mind-200 text-[#3d3529]
+                           placeholder-mind-400 outline-none focus:border-mind-400 transition-all"
+              />
+              {loginError && (
+                <p className="text-xs text-red-500">{loginError}</p>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => { setShowLogin(false); setLoginError(''); }}
+                  className="flex-1 py-2 rounded-full text-sm border border-mind-200 text-mind-500 hover:bg-mind-50 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleLogin}
+                  className="flex-1 py-2 rounded-full text-sm bg-[#3d3529] text-white hover:bg-[#504530] transition-colors"
+                >
+                  {isSignup ? '注册' : '登录'}
+                </button>
+              </div>
+              <button
+                onClick={() => { setIsSignup(!isSignup); setLoginError(''); }}
+                className="text-xs text-mind-400 hover:text-mind-600 transition-colors w-full text-center"
+              >
+                {isSignup ? '已有账号？去登录' : '没有账号？去注册'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

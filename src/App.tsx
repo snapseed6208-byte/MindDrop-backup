@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { MindDropRecord } from './types';
 import { useRecords } from './hooks';
+import { useAuth } from './hooks/useAuth';
 import Home from './pages/Home';
 import CreateRecord from './pages/CreateRecord';
 import RecordDetail from './pages/RecordDetail';
@@ -12,6 +13,7 @@ type Page =
 
 export default function App() {
   const { records, add, update, remove, reload } = useRecords();
+  const auth = useAuth();
 
   const [page, setPage] = useState<Page>({ name: 'home' });
 
@@ -49,6 +51,14 @@ export default function App() {
         />
       );
     default:
-      return <Home records={records} onNavigate={navigate} onEdit={(r) => setPage({ name: 'detail', record: r })} onReload={reload} />;
+      return (
+        <Home
+          records={records}
+          onNavigate={navigate}
+          onEdit={(r) => setPage({ name: 'detail', record: r })}
+          onReload={reload}
+          auth={auth}
+        />
+      );
   }
 }
